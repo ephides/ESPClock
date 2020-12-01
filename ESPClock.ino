@@ -3,8 +3,8 @@
 #include <ArduinoOTA.h>
 
 #ifndef STASSID
-#define STASSID "PBS-6C0855"
-#define STAPSK  "GtYpvyXv0uLQT"
+#define STASSID "AP-Name"
+#define STAPSK  "Password"
 #endif
 
 const char* ssid = STASSID;
