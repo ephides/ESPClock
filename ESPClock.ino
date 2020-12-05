@@ -1,11 +1,8 @@
+
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <ArduinoOTA.h>
-
-#ifndef STASSID
-#define STASSID "AP-Name"
-#define STAPSK  "Password"
-#endif
+#include "secrets.h"
 
 const char* ssid = STASSID;
 const char* password = STAPSK;
