@@ -4,6 +4,7 @@
 #include <ArduinoOTA.h>
 #include <Adafruit_GFX.h>
 #include <Max72xxPanel.h>
+#include <DHTesp.h>
 #include "secrets.h"
 
 const char* ssid = STASSID;
@@ -14,6 +15,14 @@ const int numberOfHorizontalDisplays = 8;
 const int numberOfVerticalDisplays   = 1;
 
 Max72xxPanel matrix = Max72xxPanel(pinCS, numberOfHorizontalDisplays, numberOfVerticalDisplays);
+
+#define DHTPIN            D2                // Pin which is connected to the DHT sensor.
+#define DHTTYPE           DHTesp::DHT22     // DHT 22 (AM2302)
+
+float temperature;
+long dhttimer;
+
+DHTesp dht;
 
 void setup() {
   // Init Matrix Panel
@@ -65,25 +74,35 @@ void setup() {
   // Use dots to indicate the progress of the OTA update
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
     matrix.setIntensity(analogRead(A0)/64);
-    if (progress/(total/100)>25) {
+    if (progress*100/total>25) {
       matrix.drawChar(38,0,'.', HIGH,LOW,1);
       matrix.write();
     }
-    if (progress/(total/100)>50) {
+    if (progress*100/total>50) {
       matrix.drawChar(44,0,'.', HIGH,LOW,1);
       matrix.write();
     }
-    if (progress/(total/100)>75) {
+    if (progress*100/total>75) {
       matrix.drawChar(50,0,'.', HIGH,LOW,1);
       matrix.write();
     }
   });
   // Init OTA
   ArduinoOTA.begin();
+
+  dht.setup(DHTPIN,DHTTYPE);
+  dhttimer=millis()+dht.getMinimumSamplingPeriod();
 }
 
 void loop() {
   struct tm *timeinfo;
+  int temp;
+
+  // get DHT readings
+  if (dhttimer<millis()) {
+     temperature = dht.getTemperature();
+     dhttimer=millis()+dht.getMinimumSamplingPeriod();
+  }
 
   // fetch actual time
   time_t now = time(nullptr);
@@ -94,20 +113,33 @@ void loop() {
 
   if (timeinfo->tm_year==70) {
     
-     matrix.drawChar(2,0, 'T', HIGH,LOW,1); // H
-     matrix.drawChar(8,0, 'I', HIGH,LOW,1); // HH  
-     matrix.drawChar(14,0,'M', HIGH,LOW,1); // HH:
-     matrix.drawChar(20,0,'E', HIGH,LOW,1); // HH:M
+     matrix.drawChar(2,0, 'T', HIGH,LOW,1); 
+     matrix.drawChar(8,0, 'I', HIGH,LOW,1); 
+     matrix.drawChar(14,0,'M', HIGH,LOW,1); 
+     matrix.drawChar(20,0,'E', HIGH,LOW,1);
     
   } else {
 
-     // display date on LED panel
-     matrix.drawChar(0,0, (timeinfo->tm_mday)/10?'0'+(timeinfo->tm_mday)/10:' ', HIGH,LOW,1);   // day of month, blank if zero
-     matrix.drawChar(6,0, '0'+(timeinfo->tm_mday)%10, HIGH,LOW,1);                              // day of month
-     matrix.drawChar(11,0,'.', HIGH,LOW,1);                                                     // .
-     matrix.drawChar(17,0, '0'+(timeinfo->tm_mon+1)/10, HIGH,LOW,1);                            // month
-     matrix.drawChar(23,0, '0'+(timeinfo->tm_mon+1)%10, HIGH,LOW,1);                            // month
-     matrix.drawChar(28,0,'.', HIGH,LOW,1);      
+     if (timeinfo->tm_sec&4) {
+        // display date on LED panel
+        matrix.drawChar(0,0, (timeinfo->tm_mday)/10?'0'+(timeinfo->tm_mday)/10:' ', HIGH,LOW,1);   // day of month, blank if zero
+        matrix.drawChar(6,0, '0'+(timeinfo->tm_mday)%10, HIGH,LOW,1);                              // day of month
+        matrix.drawChar(11,0,'.', HIGH,LOW,1);                                                     // .
+        matrix.drawChar(17,0, '0'+(timeinfo->tm_mon+1)/10, HIGH,LOW,1);                            // month
+        matrix.drawChar(23,0, '0'+(timeinfo->tm_mon+1)%10, HIGH,LOW,1);                            // month
+        matrix.drawChar(28,0,'.', HIGH,LOW,1);      
+     } else {
+        // display temperature on LED panel
+        matrix.drawChar(29,0,'C',HIGH,LOW,1);
+        matrix.drawChar(23,-2,'o',HIGH,LOW,1);
+        temp = (int)(temperature*10.0);
+        matrix.drawChar(17,0,'0'+(temp%10)?'0'+(temp%10):' ',HIGH,LOW,1);
+        temp = temp/10;
+        matrix.drawChar(11,0,'.',HIGH,LOW,1);     
+        matrix.drawChar(6,0,'0'+(temp%10),HIGH,LOW,1);
+        temp = temp/10;
+        matrix.drawChar(0,0,temp%10?'0'+(temp%10):' ',HIGH,LOW,1);       
+     }
 
      // display time
      matrix.drawChar(36,0, (timeinfo->tm_hour)/10?'0'+(timeinfo->tm_hour)/10:' ', HIGH,LOW,1);  // hour, blank if zero
