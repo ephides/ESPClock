@@ -5,10 +5,13 @@
 #include <Adafruit_GFX.h>
 #include <Max72xxPanel.h>
 #include <DHTesp.h>
+#include <PubSubClient.h>
 #include "secrets.h"
 
 const char* ssid = STASSID;
 const char* password = STAPSK;
+
+const char* mqttserver = MQTTSERVER;
 
 const int pinCS = D8; 
 const int numberOfHorizontalDisplays = 8;
@@ -20,9 +23,20 @@ Max72xxPanel matrix = Max72xxPanel(pinCS, numberOfHorizontalDisplays, numberOfVe
 #define DHTTYPE           DHTesp::DHT22     // DHT 22 (AM2302)
 
 float temperature;
+float humidity;
 long dhttimer;
 
 DHTesp dht;
+
+WiFiClient espClient;
+PubSubClient MQTTclient(espClient);
+
+long mqtttimer;
+char MQTTclientName[32];
+long mqttlastsent=0;
+const long mqttinterval=60000l;
+
+IPAddress ip;
 
 void setup() {
   // Init Matrix Panel
@@ -90,6 +104,12 @@ void setup() {
   // Init OTA
   ArduinoOTA.begin();
 
+  // Setup MQTT
+  sprintf(MQTTclientName, "esp8266-%06X", ESP.getChipId());
+  MQTTclient.setServer(MQTTSERVER, 1883);
+  mqtttimer=0l;
+
+  // Setup DHT Sensor
   dht.setup(DHTPIN,DHTTYPE);
   dhttimer=millis()+dht.getMinimumSamplingPeriod();
 }
@@ -97,10 +117,14 @@ void setup() {
 void loop() {
   struct tm *timeinfo;
   int temp;
+  
+  char topic[64];
+  char payload[64];
 
   // get DHT readings
   if (dhttimer<millis()) {
      temperature = dht.getTemperature();
+     humidity = dht.getHumidity();
      dhttimer=millis()+dht.getMinimumSamplingPeriod();
   }
 
@@ -152,6 +176,43 @@ void loop() {
 
   matrix.setIntensity(analogRead(A0)/64);
   matrix.write(); // Send bitmap to display
+
+  // MQTT
+  if (!MQTTclient.connected()) {
+     if (mqtttimer<millis()) {
+        mqtttimer=millis()+5000;
+        MQTTclient.connect(MQTTclientName);
+     }
+  } else {
+     MQTTclient.loop();
+     // Publish sensor readings
+     if (mqttlastsent+mqttinterval<millis()) {
+        sprintf(topic,"%s/sensors/temperature",MQTTclientName);
+        sprintf(payload,"%.2f",temperature);
+        MQTTclient.publish(topic, payload);
+        sprintf(topic,"%s/sensors/humidity",MQTTclientName);
+        sprintf(payload,"%.2f",humidity);
+        MQTTclient.publish(topic, payload);
+        sprintf(topic,"%s/sensors/illumination",MQTTclientName);
+        sprintf(payload,"%u",analogRead(A0));
+        MQTTclient.publish(topic, payload);        
+        sprintf(topic,"%s/sensors/headindex",MQTTclientName);
+        sprintf(payload,"%.2f",dht.computeHeatIndex(temperature, humidity, 0));
+        MQTTclient.publish(topic, payload);
+        sprintf(topic,"%s/sensors/dewpoint",MQTTclientName);
+        sprintf(payload,"%.2f",dht.computeDewPoint(temperature, humidity, 0));
+        MQTTclient.publish(topic, payload);        
+        // infos about the system
+        sprintf(topic,"%s/network/rssi",MQTTclientName);
+        sprintf(payload,"%i",WiFi.RSSI());
+        MQTTclient.publish(topic, payload);
+        sprintf(topic,"%s/network/localip",MQTTclientName);
+        ip = WiFi.localIP();
+        sprintf(payload,"%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+        MQTTclient.publish(topic, payload);
+        mqttlastsent=millis();
+     }
+  }
     
   // Over The Air Update
   ArduinoOTA.handle();
